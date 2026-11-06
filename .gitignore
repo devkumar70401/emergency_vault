@@ -1,0 +1,5 @@
+
+# Large archive backups
+backups/
+*.tar.gz
+

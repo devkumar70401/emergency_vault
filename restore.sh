@@ -2,9 +2,9 @@
 # ==============================================================================
 # SE WORKSPACE RECOVERY & BOOTSTRAP ENGINE
 # ==============================================================================
-# Restores all repositories, SSH keys, configs, and backup automation on a fresh OS.
+# Restores all repositories and GitHub SSH keys on a fresh OS.
 # Usage:
-#   curl -sL https://raw.githubusercontent.com/devkumar70401/emergency-vault/main/restore.sh | bash
+#   curl -sL https://raw.githubusercontent.com/devkumar70401/emergency_vault/main/restore.sh | bash
 # ==============================================================================
 
 set -euo pipefail
@@ -13,7 +13,7 @@ echo "============================================================"
 echo "         SE WORKSPACE RESTORATION & BOOTSTRAP ENGINE        "
 echo "============================================================"
 echo "This script will restore your complete SE workspace, repositories,"
-echo "SSH keys, and automated backup schedules onto this fresh OS."
+echo "and GitHub SSH keys onto this fresh OS."
 echo ""
 
 # 1. Check prerequisites
@@ -37,7 +37,7 @@ TEMP_DIR=$(mktemp -d /tmp/se_restore.XXXXXX)
 trap 'rm -rf "$TEMP_DIR"' EXIT
 
 echo "[+] Downloading encrypted vault from GitHub..."
-curl -sL "https://raw.githubusercontent.com/devkumar70401/emergency-vault/main/vault.enc" -o "$TEMP_DIR/vault.enc"
+curl -sL "https://raw.githubusercontent.com/devkumar70401/emergency_vault/main/vault.enc" -o "$TEMP_DIR/vault.enc"
 
 if [[ ! -s "$TEMP_DIR/vault.enc" ]]; then
   echo "[-] ERROR: Downloaded vault is empty or unavailable!"
@@ -55,43 +55,50 @@ if ! (
   exit 1
 fi
 
-echo "[+] Decryption successful! Deploying workspace to $HOME/se..."
+echo "[+] Decryption successful!"
 
-# 3. Restore ~/se workspace
-mkdir -p "$HOME/se"
-if [[ -d "$TEMP_DIR/se" ]]; then
-  cp -r "$TEMP_DIR/se/"* "$HOME/se/"
-fi
-
-# 4. Restore SSH keys if present in vault
-if [[ -d "$TEMP_DIR/ssh_keys" ]]; then
+# 3. Restore SSH Keys
+if [[ -d "$TEMP_DIR/ssh" ]]; then
   echo "[+] Restoring GitHub SSH keys..."
   mkdir -p "$HOME/.ssh"
   chmod 700 "$HOME/.ssh"
-  cp "$TEMP_DIR/ssh_keys/id_ed25519"* "$HOME/.ssh/" 2>/dev/null || true
+  cp "$TEMP_DIR/ssh/id_ed25519"* "$HOME/.ssh/" 2>/dev/null || true
   chmod 600 "$HOME/.ssh/id_ed25519" 2>/dev/null || true
   chmod 644 "$HOME/.ssh/id_ed25519.pub" 2>/dev/null || true
 fi
 
-# 5. Restore .vault_secrets if present
-if [[ -f "$TEMP_DIR/.vault_secrets" ]]; then
-  echo "[+] Restoring vault secrets configuration..."
-  cp "$TEMP_DIR/.vault_secrets" "$HOME/.vault_secrets"
-  chmod 600 "$HOME/.vault_secrets"
-fi
-
-# 6. Set up nightly cron job
-echo "[+] Configuring automated nightly backup (2:00 AM)..."
-CRON_LINE="0 2 * * * /bin/bash $HOME/se/sync_vault.sh >> $HOME/se/vault_sync.log 2>&1"
-( crontab -l 2>/dev/null | grep -v "sync_vault.sh" ; echo "$CRON_LINE" ) | crontab -
-
-# 7. Test SSH connection to GitHub
+# 4. Test SSH connection to GitHub
 echo "[+] Testing GitHub SSH connection..."
 ssh -o StrictHostKeyChecking=no -T git@github.com 2>&1 || true
+
+# 5. Clone or pull all 5 repositories into ~/se
+mkdir -p "$HOME/se"
+cd "$HOME/se"
+
+echo "[+] Restoring all repositories into $HOME/se..."
+
+repos=(
+  "emergency_vault|https://github.com/devkumar70401/emergency_vault.git"
+  "notes|https://github.com/devkumar70401/notes.git"
+  "projects|https://github.com/devkumar70401/projects.git"
+  "toolbox|https://github.com/devkumar70401/toolbox.git"
+  "personal|git@github.com:devkumar70401/personal.git"
+)
+
+for entry in "${repos[@]}"; do
+  repo_name="${entry%%|*}"
+  repo_url="${entry##*|}"
+  if [[ -d "$HOME/se/$repo_name/.git" ]]; then
+    echo "  [✔] $repo_name already exists, updating..."
+    git -C "$HOME/se/$repo_name" pull --rebase 2>/dev/null || true
+  else
+    echo "  [⬇] Cloning $repo_name..."
+    git clone "$repo_url" "$HOME/se/$repo_name" || echo "[-] Warning: failed to clone $repo_name"
+  fi
+done
 
 echo ""
 echo "============================================================"
 echo " [SUCCESS] SE WORKSPACE IS FULLY RESTORED AND OPERATIONAL! "
 echo "============================================================"
-echo "Your repositories are in: $HOME/se"
-echo "Nightly backups are enabled automatically."
+echo "All 5 repositories are now present in: $HOME/se"
